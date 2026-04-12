@@ -2,139 +2,128 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Аэроконденсат × Русал | Система Раскроя</title>
+    <title>Аэроконденсат × Русал</title>
     <style>
-        :root { --bg: #0f1114; --panel: #1a1d23; --accent: #007bff; --text: #e1e1e1; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; height: 100vh; overflow: hidden; box-sizing: border-box; }
+        :root { --bg: #0d0f12; --panel: #16191f; --accent: #007bff; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 15px; height: 100vh; overflow: hidden; }
         .layout { display: grid; grid-template-columns: 320px 1fr; gap: 15px; height: calc(100vh - 30px); }
-        .sidebar { background: var(--panel); padding: 20px; border-radius: 10px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #333; }
-        .brand { border-bottom: 1px solid #333; padding-bottom: 10px; }
-        .brand h2 { margin: 0; font-size: 18px; color: var(--accent); }
-        .help-text { font-size: 11px; color: #888; line-height: 1.4; background: #222; padding: 10px; border-radius: 5px; }
-        .stat-card { background: #252932; padding: 12px; border-radius: 6px; border-left: 4px solid var(--accent); }
-        .stat-val { font-size: 22px; font-weight: bold; margin-top: 3px; }
-        .viewer { background: var(--panel); border-radius: 10px; border: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; }
-        .canvas-container { flex: 1; overflow-y: auto; background: #111; position: relative; }
+        .sidebar { background: var(--panel); padding: 20px; border-radius: 10px; border: 1px solid #2a2e37; display: flex; flex-direction: column; gap: 12px; }
+        .brand h2 { margin: 0; font-size: 20px; color: var(--accent); letter-spacing: 1px; text-transform: uppercase; }
+        .stat-card { background: #1e222a; padding: 12px; border-radius: 6px; border-left: 5px solid #28a745; }
+        .stat-val { font-size: 24px; font-weight: bold; }
+        .viewer { background: var(--panel); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #2a2e37; }
+        .canvas-container { flex: 1; overflow-y: auto; background: #000; position: relative; scrollbar-width: thin; }
         canvas { display: block; margin: 0 auto; background: #fff; }
-        .legend { background: #15181f; padding: 8px; border-top: 1px solid #333; display: flex; gap: 15px; justify-content: center; font-size: 11px; }
+        .legend { background: #0d0f12; padding: 10px; display: flex; gap: 20px; justify-content: center; font-size: 11px; }
         .leg-item { display: flex; align-items: center; gap: 6px; }
-        .leg-item i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
-        button { padding: 10px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; background: var(--accent); color: #fff; }
-        select, input { padding: 8px; background: #0f1114; color: #fff; border: 1px solid #444; border-radius: 5px; }
+        .leg-item i { width: 12px; height: 12px; border-radius: 2px; }
+        button { padding: 12px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; background: var(--accent); color: #fff; }
+        select, input { padding: 10px; background: #0d0f12; color: #fff; border: 1px solid #333; border-radius: 6px; }
+        .hint { font-size: 11px; color: #888; background: #111; padding: 10px; border-radius: 5px; line-height: 1.4; }
     </style>
 </head>
 <body>
 
 <div class="layout">
     <div class="sidebar">
-        <div class="brand">
-            <h2>АЭРОКОНДЕНСАТ <span style="color:#fff">×</span> РУСАЛ</h2>
-            <small style="color:#666">Industrial Solutions</small>
+        <div class="brand"><h2>Аэроконденсат <span style="color:#fff">×</span> Русал</h2></div>
+        
+        <div class="hint">
+            <b>Технический регламент:</b><br>
+            1. Лист 1: "Заказы"<br>
+            2. Лист 2: "Справочник межкроя"<br>
+            Система рассчитает раскрой только для материалов, указанных в справочнике.
         </div>
-
-        <div class="help-text">
-            <b>Инструкция:</b><br>
-            Прикрепите .xlsx файл. Листы должны называться: <b>"Заказы"</b> и <b>"Справочник межкроя"</b>.
-        </div>
         
-        <input type="file" id="fileInput">
+        <input type="file" id="f">
+        <button onclick="calc()">РАССЧИТАТЬ ПОЛНОСТЬЮ</button>
         
-        <label style="font-size:11px">Алгоритм оптимизации:</label>
-        <select id="methodSelect">
-            <option value="A">Метод А: Полочный (Линейный)</option>
-            <option value="B">Метод Б: Вертикальный Стек (Колонки)</option>
-            <option value="C">Метод С: Группировка Ширины (Аэроконденсат)</option>
-        </select>
-        
-        <button onclick="calculate()">ВЫПОЛНИТЬ РАСЧЕТ</button>
-        
-        <div id="statsPanel" style="display:none; flex-direction: column; gap: 10px;">
-            <div class="stat-card"><small>Эффективность</small><div class="stat-val" id="res_eff" style="color:#28a745">0%</div></div>
-            <div class="stat-card" style="border-color:#dc3545"><small>Отходы + Резы</small><div class="stat-val" id="res_waste">0 м²</div></div>
-            <select id="bobbinSelect" onchange="draw()"></select>
-            <button style="background:#444" onclick="downloadJSON()">ЭКСПОРТ JSON</button>
+        <div id="stats" style="display:none; flex-direction: column; gap: 10px;">
+            <div class="stat-card"><small>Общий КПД системы</small><div class="stat-val" id="vEff">0%</div></div>
+            <div class="stat-card" style="border-left-color:#dc3545"><small>Суммарные отходы</small><div class="stat-val" id="vWst">0 м²</div></div>
+            <label style="font-size:12px">Выбор бобины (Материал):</label>
+            <select id="bSel" onchange="draw()"></select>
+            <button style="background:#444" onclick="download()">ЭКСПОРТ JSON</button>
         </div>
     </div>
 
     <div class="viewer">
-        <div class="canvas-container"><canvas id="mainCanvas"></canvas></div>
+        <div class="canvas-container"><canvas id="cv"></canvas></div>
         <div class="legend">
-            <div class="leg-item"><i style="background:#007bff"></i> Очередь 1</div>
-            <div class="leg-item"><i style="background:#28a745"></i> Очередь 2</div>
-            <div class="leg-item"><i style="background:#ffc107"></i> Очередь 3+</div>
-            <div class="leg-item"><i style="border: 1px dashed #FFD700;"></i> Рез</div>
-            <div class="leg-item"><i style="background:rgba(255, 50, 50, 0.25)"></i> Кромка</div>
-        </div>
+    <div class="leg-item"><i style="background:#007bff"></i> Очередь 1</div>
+    <div class="leg-item"><i style="background:#28a745"></i> Очередь 2</div>
+    <div class="leg-item"><i style="background:#ffc107"></i> Очередь 3+</div>
+    <div class="leg-item"><i style="border: 1px dashed #FFD700;"></i> Линия реза</div>
+    <div class="leg-item"><i style="background:rgba(255, 50, 50, 0.4); border: 1px solid red;"></i> Кромка (15мм)</div>
+    <div class="leg-item"><span>↻</span> Вращение</div>
+</div>
     </div>
 </div>
 
 <script>
-    let resData = null;
-    const pColors = ["#007bff", "#28a745", "#ffc107", "#e83e8c", "#6f42c1"];
+    let res = null;
+    const colors = ["#007bff", "#28a745", "#ffc107", "#e83e8c", "#6f42c1"];
 
-    async function calculate() {
-        const file = document.getElementById('fileInput').files[0];
-        if(!file) return alert("Выберите файл!");
+    async function calc() {
+        const file = document.getElementById('f').files[0];
+        if(!file) return alert("Файл!");
         const fd = new FormData();
         fd.append('file', file);
-        fd.append('method', document.getElementById('methodSelect').value);
 
         const r = await fetch('/upload', { method: 'POST', body: fd });
-        resData = await r.json();
+        res = await r.json();
+        if(res.error) return alert("Ошибка: " + res.error);
 
-        document.getElementById('statsPanel').style.display = 'flex';
-        document.getElementById('res_eff').innerText = (100 - resData.efficiency_metrics.waste_percentage).toFixed(2) + "%";
-        document.getElementById('res_waste').innerText = resData.efficiency_metrics.waste_area_m2 + " м²";
-        document.getElementById('bobbinSelect').innerHTML = resData.bobbins.map((_, i) => `<option value="${i}">Бобина №${i+1}</option>`).join('');
+        document.getElementById('stats').style.display = 'flex';
+        document.getElementById('vEff').innerText = res.metrics.eff + "%";
+        document.getElementById('vWst').innerText = res.metrics.waste + " м²";
+        
+        document.getElementById('bSel').innerHTML = res.bobbins.map((b, i) => 
+            `<option value="${i}">№${i+1} [${b.material}]</option>`
+        ).join('');
         draw();
     }
 
     function draw() {
-        const cv = document.getElementById('mainCanvas');
+        const cv = document.getElementById('cv');
         const ctx = cv.getContext('2d');
-        const bIdx = document.getElementById('bobbinSelect').value;
-        const items = resData.bobbins[bIdx];
-        const conf = resData.layout_configuration;
+        const b = res.bobbins[document.getElementById('bSel').value];
+        const items = b.items;
 
-        const zoom = 0.5, scaleY = 1.0;
-        const maxLen = Math.max(...items.map(i => i.coordinates.y_start_m + i.coordinates.length_m));
+        const zoom = 0.5, scaleY = 1.0; 
+        const maxH = Math.max(...items.map(i => i.y + i.h));
         cv.width = 1500 * zoom;
-        cv.height = maxLen * scaleY + 50;
+        cv.height = maxH * scaleY + 100;
 
         ctx.fillStyle = "#111"; ctx.fillRect(0,0, cv.width, cv.height);
         
-        ctx.fillStyle = "rgba(255, 50, 50, 0.25)";
-        ctx.fillRect(0, 0, conf.edge_trim_mm * zoom, cv.height);
-        ctx.fillRect(cv.width - (conf.edge_trim_mm * zoom), 0, conf.edge_trim_mm * zoom, cv.height);
+        ctx.fillStyle = "rgba(255, 50, 50, 0.2)";
+        ctx.fillRect(0, 0, 15 * zoom, cv.height);
+        ctx.fillRect(cv.width - (15 * zoom), 0, 15 * zoom, cv.height);
 
         items.forEach(it => {
-            const c = it.coordinates;
-            const x = c.x_start_mm * zoom, y = c.y_start_m * scaleY;
-            const w = c.width_mm * zoom, h = c.length_m * scaleY;
+            const x = it.x * zoom, y = it.y * scaleY;
+            const w = it.w * zoom, h = it.h * scaleY;
 
-            ctx.fillStyle = pColors[(it.priority - 1) % 5];
+            ctx.fillStyle = colors[(it.p - 1) % 5];
             ctx.fillRect(x, y, w, h);
             ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
 
             ctx.setLineDash([3, 2]); ctx.strokeStyle = "#FFD700";
-            ctx.strokeRect(x - (conf.inter_cut_mm/2 * zoom), y, w + (conf.inter_cut_mm * zoom), h);
+            ctx.strokeRect(x - (b.gap/2 * zoom), y, w + (b.gap * zoom), h);
             ctx.setLineDash([]);
 
             if(h > 12) {
-                ctx.fillStyle = "#000"; ctx.font = "bold 11px sans-serif";
-                ctx.fillText(it.order_id, x+4, y+14);
-                if(h > 25) {
-                    ctx.font = "9px sans-serif";
-                    ctx.fillText(`${c.width_mm}x${c.length_m}m`, x+4, y+26);
-                }
+                ctx.fillStyle = "#000"; ctx.font = "bold 14px sans-serif";
+                ctx.fillText(it.rotated ? `↻ ${it.id}` : it.id, x+5, y+16);
             }
         });
     }
 
-    function downloadJSON() {
-        const blob = new Blob([JSON.stringify(resData, null, 2)], {type: "application/json"});
+    function download() {
+        const blob = new Blob([JSON.stringify(res, null, 2)], {type: "application/json"});
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-        a.download = `AeroRusal_${resData.instruction_metadata.batch_id}.json`; a.click();
+        a.download = `Plan_AeroCondensate.json`; a.click();
     }
 </script>
 </body>
