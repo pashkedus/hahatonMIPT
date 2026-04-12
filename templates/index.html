@@ -2,113 +2,139 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>РУСАЛ - Оптимизация Раскроя</title>
+    <title>Аэроконденсат × Русал | Система Раскроя</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1c23; color: #fff; margin: 0; padding: 20px; }
-        .grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
-        .sidebar { background: #242731; padding: 20px; border-radius: 12px; }
-        .main { background: #242731; padding: 20px; border-radius: 12px; }
-        .card { background: #2d303a; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #007bff; }
-        .val { font-size: 24px; font-weight: bold; }
-        .canvas-box { overflow-y: scroll; height: 75vh; background: #333; border: 2px solid #444; }
-        button { width: 100%; padding: 12px; margin: 10px 0; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; background: #007bff; color: white; }
-        button:disabled { background: #444; }
-        select, input { width: 100%; padding: 10px; margin-bottom: 10px; background: #1a1c23; color: #fff; border: 1px solid #444; border-radius: 6px; }
-        #loading { color: #ffd700; text-align: center; display: none; }
+        :root { --bg: #0f1114; --panel: #1a1d23; --accent: #007bff; --text: #e1e1e1; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; height: 100vh; overflow: hidden; box-sizing: border-box; }
+        .layout { display: grid; grid-template-columns: 320px 1fr; gap: 15px; height: calc(100vh - 30px); }
+        .sidebar { background: var(--panel); padding: 20px; border-radius: 10px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #333; }
+        .brand { border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .brand h2 { margin: 0; font-size: 18px; color: var(--accent); }
+        .help-text { font-size: 11px; color: #888; line-height: 1.4; background: #222; padding: 10px; border-radius: 5px; }
+        .stat-card { background: #252932; padding: 12px; border-radius: 6px; border-left: 4px solid var(--accent); }
+        .stat-val { font-size: 22px; font-weight: bold; margin-top: 3px; }
+        .viewer { background: var(--panel); border-radius: 10px; border: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; }
+        .canvas-container { flex: 1; overflow-y: auto; background: #111; position: relative; }
+        canvas { display: block; margin: 0 auto; background: #fff; }
+        .legend { background: #15181f; padding: 8px; border-top: 1px solid #333; display: flex; gap: 15px; justify-content: center; font-size: 11px; }
+        .leg-item { display: flex; align-items: center; gap: 6px; }
+        .leg-item i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+        button { padding: 10px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; background: var(--accent); color: #fff; }
+        select, input { padding: 8px; background: #0f1114; color: #fff; border: 1px solid #444; border-radius: 5px; }
     </style>
 </head>
 <body>
-<div class="grid">
+
+<div class="layout">
     <div class="sidebar">
-        <h2 style="color:#007bff">RUSAL CUT v2</h2>
-        <input type="file" id="f">
-        <label>Метод расчета:</label>
-        <select id="m">
-            <option value="A">Метод А (Полочный)</option>
-            <option value="B">Метод Б (Вертикальный стек)</option>
-        </select>
-        <button id="b" onclick="calc()">РАССЧИТАТЬ</button>
+        <div class="brand">
+            <h2>АЭРОКОНДЕНСАТ <span style="color:#fff">×</span> РУСАЛ</h2>
+            <small style="color:#666">Industrial Solutions</small>
+        </div>
+
+        <div class="help-text">
+            <b>Инструкция:</b><br>
+            Прикрепите .xlsx файл. Листы должны называться: <b>"Заказы"</b> и <b>"Справочник межкрой"</b>.
+        </div>
         
-        <div id="res" style="display:none">
-            <div class="card"><small>Использовано площади</small><div class="val" id="v1">0%</div></div>
-            <div class="card" style="border-color:#dc3545"><small>Обрезки</small><div class="val" id="v2">0 м²</div></div>
-            <label>Выберите бобину:</label>
-            <select id="bs" onchange="draw()"></select>
-            <button style="background:#28a745" onclick="download()">СКАЧАТЬ JSON</button>
+        <input type="file" id="fileInput">
+        
+        <label style="font-size:11px">Алгоритм оптимизации:</label>
+        <select id="methodSelect">
+            <option value="A">Метод А: Полочный (Линейный)</option>
+            <option value="B">Метод Б: Вертикальный Стек (Колонки)</option>
+            <option value="C">Метод С: Группировка Ширины (Аэроконденсат)</option>
+        </select>
+        
+        <button onclick="calculate()">ВЫПОЛНИТЬ РАСЧЕТ</button>
+        
+        <div id="statsPanel" style="display:none; flex-direction: column; gap: 10px;">
+            <div class="stat-card"><small>Эффективность</small><div class="stat-val" id="res_eff" style="color:#28a745">0%</div></div>
+            <div class="stat-card" style="border-color:#dc3545"><small>Отходы + Резы</small><div class="stat-val" id="res_waste">0 м²</div></div>
+            <select id="bobbinSelect" onchange="draw()"></select>
+            <button style="background:#444" onclick="downloadJSON()">ЭКСПОРТ JSON</button>
         </div>
     </div>
-    <div class="main">
-        <div id="loading">Математический расчет...</div>
-        <div class="canvas-box"><canvas id="c"></canvas></div>
-        <div style="margin-top:10px; font-size:12px">
-            <span style="color:#007bff">■</span> Очередь 1 | <span style="color:#28a745">■</span> Спутники | <span style="color:#666">---</span> Рез | <span style="color:#ffcccc">■</span> Кромка
+
+    <div class="viewer">
+        <div class="canvas-container"><canvas id="mainCanvas"></canvas></div>
+        <div class="legend">
+            <div class="leg-item"><i style="background:#007bff"></i> Очередь 1</div>
+            <div class="leg-item"><i style="background:#28a745"></i> Очередь 2</div>
+            <div class="leg-item"><i style="background:#ffc107"></i> Очередь 3+</div>
+            <div class="leg-item"><i style="border: 1px dashed #FFD700;"></i> Рез</div>
+            <div class="leg-item"><i style="background:rgba(255, 50, 50, 0.25)"></i> Кромка</div>
         </div>
     </div>
 </div>
 
 <script>
-    let data = null;
-    async function calc() {
-        const file = document.getElementById('f').files[0];
-        if(!file) return alert("Файл!");
-        document.getElementById('loading').style.display = "block";
-        document.getElementById('b').disabled = true;
+    let resData = null;
+    const pColors = ["#007bff", "#28a745", "#ffc107", "#e83e8c", "#6f42c1"];
 
+    async function calculate() {
+        const file = document.getElementById('fileInput').files[0];
+        if(!file) return alert("Выберите файл!");
         const fd = new FormData();
         fd.append('file', file);
-        fd.append('method', document.getElementById('m').value);
+        fd.append('method', document.getElementById('methodSelect').value);
 
-        const res = await fetch('/upload', { method: 'POST', body: fd });
-        data = await res.json();
+        const r = await fetch('/upload', { method: 'POST', body: fd });
+        resData = await r.json();
 
-        document.getElementById('loading').style.display = "none";
-        document.getElementById('b').disabled = false;
-        document.getElementById('res').style.display = "block";
-        
-        document.getElementById('v1').innerText = (100 - data.efficiency_metrics.waste_percentage).toFixed(2) + "%";
-        document.getElementById('v2').innerText = data.efficiency_metrics.waste_area_m2 + " м²";
-        
-        document.getElementById('bs').innerHTML = data.bobbins.map((_, i) => `<option value="${i}">Бобина №${i+1}</option>`).join('');
+        document.getElementById('statsPanel').style.display = 'flex';
+        document.getElementById('res_eff').innerText = (100 - resData.efficiency_metrics.waste_percentage).toFixed(2) + "%";
+        document.getElementById('res_waste').innerText = resData.efficiency_metrics.waste_area_m2 + " м²";
+        document.getElementById('bobbinSelect').innerHTML = resData.bobbins.map((_, i) => `<option value="${i}">Бобина №${i+1}</option>`).join('');
         draw();
     }
 
     function draw() {
-        const canvas = document.getElementById('c');
-        const ctx = canvas.getContext('2d');
-        const idx = document.getElementById('bs').value;
-        const items = data.bobbins[idx];
-        const conf = data.layout_configuration;
-        const scaleX = 0.5, scaleY = 1.0; 
+        const cv = document.getElementById('mainCanvas');
+        const ctx = cv.getContext('2d');
+        const bIdx = document.getElementById('bobbinSelect').value;
+        const items = resData.bobbins[bIdx];
+        const conf = resData.layout_configuration;
 
-        canvas.width = 1500 * scaleX;
-        canvas.height = 10000 * scaleY;
-        ctx.fillStyle = "#fff"; ctx.fillRect(0,0, canvas.width, canvas.height);
+        const zoom = 0.5, scaleY = 1.0;
+        const maxLen = Math.max(...items.map(i => i.coordinates.y_start_m + i.coordinates.length_m));
+        cv.width = 1500 * zoom;
+        cv.height = maxLen * scaleY + 50;
 
-        // Кромки
-        ctx.fillStyle = "#ffeaea";
-        ctx.fillRect(0, 0, conf.edge_trim_mm * scaleX, canvas.height);
-        ctx.fillRect(canvas.width - (conf.edge_trim_mm * scaleX), 0, conf.edge_trim_mm * scaleX, canvas.height);
+        ctx.fillStyle = "#111"; ctx.fillRect(0,0, cv.width, cv.height);
+        
+        ctx.fillStyle = "rgba(255, 50, 50, 0.25)";
+        ctx.fillRect(0, 0, conf.edge_trim_mm * zoom, cv.height);
+        ctx.fillRect(cv.width - (conf.edge_trim_mm * zoom), 0, conf.edge_trim_mm * zoom, cv.height);
 
         items.forEach(it => {
-            const x = it.coordinates.x_start_mm * scaleX, y = it.coordinates.y_start_m * scaleY;
-            const w = it.coordinates.width_mm * scaleX, h = it.coordinates.length_m * scaleY;
-            ctx.fillStyle = it.type === 'main' ? '#007bff' : '#28a745';
-            ctx.globalAlpha = 0.7; ctx.fillRect(x, y, w, h);
-            ctx.globalAlpha = 1.0; ctx.strokeStyle = "#000"; ctx.lineWidth = 0.5; ctx.strokeRect(x, y, w, h);
-            
-            // Линия реза (пунктир)
-            ctx.setLineDash([4, 4]); ctx.strokeStyle = "#666"; ctx.beginPath();
-            ctx.moveTo(x+w+(conf.inter_cut_mm/2*scaleX), y); ctx.lineTo(x+w+(conf.inter_cut_mm/2*scaleX), y+h);
-            ctx.stroke(); ctx.setLineDash([]);
+            const c = it.coordinates;
+            const x = c.x_start_mm * zoom, y = c.y_start_m * scaleY;
+            const w = c.width_mm * zoom, h = c.length_m * scaleY;
+
+            ctx.fillStyle = pColors[(it.priority - 1) % 5];
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+
+            ctx.setLineDash([3, 2]); ctx.strokeStyle = "#FFD700";
+            ctx.strokeRect(x - (conf.inter_cut_mm/2 * zoom), y, w + (conf.inter_cut_mm * zoom), h);
+            ctx.setLineDash([]);
+
+            if(h > 12) {
+                ctx.fillStyle = "#000"; ctx.font = "bold 11px sans-serif";
+                ctx.fillText(it.order_id, x+4, y+14);
+                if(h > 25) {
+                    ctx.font = "9px sans-serif";
+                    ctx.fillText(`${c.width_mm}x${c.length_m}m`, x+4, y+26);
+                }
+            }
         });
     }
 
-    function download() {
-        const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `layout_${data.instruction_metadata.batch_id}.json`;
-        a.click();
+    function downloadJSON() {
+        const blob = new Blob([JSON.stringify(resData, null, 2)], {type: "application/json"});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = `AeroRusal_${resData.instruction_metadata.batch_id}.json`; a.click();
     }
 </script>
 </body>

@@ -7,74 +7,50 @@ class NestingEngine:
         self.edge_trim = edge_trim
         self.usable_width = bobbin_width - 2 * edge_trim
         
-    def pack(self, orders, inter_cut_map):
-        pool_by_priority = {}
-        for o in orders:
-            p = o['priority']
-            if p not in pool_by_priority: pool_by_priority[p] = []
-            pool_by_priority[p].append(o)
-
-        priorities = sorted(pool_by_priority.keys())
-        bobbins = []
-        current_bobbin_items = []
-        current_y_in_bobbin = 0
-        
-        alloy = orders[0]['alloy']
-        thick = orders[0]['thickness']
-        gap = inter_cut_map.get((alloy, thick), 5)
-
-        all_items = []
-        for p in priorities: all_items.extend(pool_by_priority[p])
-        for s in all_items: s['placed'] = False
-
-        for p in priorities:
-            main_orders = [o for o in pool_by_priority[p] if not o['placed']]
-            main_orders.sort(key=lambda x: x['length'], reverse=True)
-            active_sats = [s for s in all_items if not s['placed']]
-            active_sats.sort(key=lambda x: x['width'], reverse=True)
-
-            for mo in main_orders:
-                if mo['placed']: continue
-                if current_y_in_bobbin + mo['length'] > self.max_length:
-                    if current_bobbin_items: bobbins.append(current_bobbin_items)
-                    current_bobbin_items, current_y_in_bobbin = [], 0
-                
-                y_start = current_y_in_bobbin
-                current_bobbin_items.append({
-                    "order_id": mo['id'], "type": "main", "priority": mo['priority'],
-                    "coordinates": {"x_start_mm": self.edge_trim, "y_start_m": round(y_start, 3), "width_mm": mo['width'], "length_m": mo['length']}
-                })
-                mo['placed'] = True
-                
-                rem_w = self.usable_width - mo['width'] - gap
-                curr_x = self.edge_trim + mo['width'] + gap
-                
-                idx = 0
-                while idx < len(active_sats) and rem_w > 0:
-                    sat = active_sats[idx]
-                    if not sat['placed'] and sat['width'] <= rem_w and sat['length'] <= mo['length']:
-                        current_bobbin_items.append({
-                            "order_id": sat['id'], "type": "satellite", "priority": sat['priority'],
-                            "coordinates": {"x_start_mm": curr_x, "y_start_m": round(y_start, 3), "width_mm": sat['width'], "length_m": sat['length']}
-                        })
-                        sat['placed'] = True
-                        curr_x += sat['width'] + gap
-                        rem_w -= (sat['width'] + gap)
-                        active_sats.pop(idx)
-                    else: idx += 1
-                current_y_in_bobbin += mo['length']
-
-        if current_bobbin_items: bobbins.append(current_bobbin_items)
-        return self.finalize(bobbins, alloy, thick, gap)
-
-    def finalize(self, bobbins, alloy, thick, gap):
-        total_useful = sum(sum(i['coordinates']['width_mm'] * i['coordinates']['length_m'] for i in b) for b in bobbins) / 1000
-        total_area = len(bobbins) * self.total_width * self.max_length / 1000
-        waste = total_area - total_useful
+    def _create_item(self, order, x, y, type_label):
         return {
-            "instruction_metadata": {"batch_id": f"RUN-A-{datetime.datetime.now().strftime('%H%M%S')}", "timestamp": datetime.datetime.now().isoformat(), "factory": "САЗ", "machine_id": "MILL-05"},
+            "order_id": order['id'], "type": type_label, "priority": order['priority'],
+            "w": order['width'], "h": order['length'],
+            "coordinates": {"x_start_mm": x, "y_start_m": round(y, 3), "width_mm": order['width'], "length_m": order['length']}
+        }
+
+    def finalize(self, bobbins, alloy, thick, gap, method_id):
+        total_useful_area = sum(sum(i['w'] * i['h'] for i in b) for b in bobbins) / 1000
+        total_length_used = sum(max((i['coordinates']['y_start_m'] + i['coordinates']['length_m']) for i in b) if b else 0 for b in bobbins)
+        total_unrolled_area = (total_length_used * self.total_width) / 1000
+        waste_area = total_unrolled_area - total_useful_area
+        waste_percent = (waste_area / total_unrolled_area * 100) if total_unrolled_area > 0 else 0
+        
+        return {
+            "instruction_metadata": {"batch_id": f"RUN-{method_id}-{datetime.datetime.now().strftime('%H%M%S')}", "factory": "САЗ"},
             "source_material": {"alloy": alloy, "thickness_um": thick, "bobbin_width_mm": self.total_width, "bobbin_length_m": self.max_length},
             "layout_configuration": {"inter_cut_mm": gap, "edge_trim_mm": self.edge_trim},
             "bobbins": bobbins,
-            "efficiency_metrics": {"total_used_area_m2": round(total_useful, 2), "waste_area_m2": round(waste, 2), "waste_percentage": round((waste/total_area*100), 2)}
+            "efficiency_metrics": {"total_used_area_m2": round(total_useful_area, 2), "waste_area_m2": round(waste_area, 2), "waste_percentage": round(waste_percent, 2)}
         }
+
+    def pack(self, orders, inter_cut_map):
+        pool = {p: [o for o in orders if o['priority'] == p] for p in set(o['priority'] for o in orders)}
+        priorities = sorted(pool.keys())
+        for o in orders: o['placed'] = False
+        bobbins, current_map, current_y = [], [], 0
+        alloy, thick = orders[0]['alloy'], orders[0]['thickness']
+        gap = inter_cut_map.get((alloy, thick), 5)
+
+        for p in priorities:
+            mains = sorted([o for o in pool[p] if not o['placed']], key=lambda x: x['length'], reverse=True)
+            for mo in mains:
+                if mo['placed']: continue
+                if current_y + mo['length'] > self.max_length:
+                    bobbins.append(current_map); current_map, current_y = [], 0
+                current_map.append(self._create_item(mo, self.edge_trim, current_y, "main"))
+                mo['placed'] = True
+                rem_w = self.usable_width - mo['width'] - gap
+                curr_x = self.edge_trim + mo['width'] + gap
+                for sat in orders:
+                    if not sat['placed'] and sat['width'] <= rem_w and sat['length'] <= mo['length']:
+                        current_map.append(self._create_item(sat, curr_x, current_y, "satellite"))
+                        sat['placed'] = True; break
+                current_y += mo['length']
+        if current_map: bobbins.append(current_map)
+        return self.finalize(bobbins, alloy, thick, gap, "A")
