@@ -13,7 +13,7 @@ def upload():
     method = request.form.get('method', 'A')
     
     df = pd.read_excel(file, sheet_name='Заказы')
-    df_ref = pd.read_excel(file, sheet_name='Справочник межкрой')
+    df_ref = pd.read_excel(file, sheet_name='Справочник межкроя')
     
     ref = {(str(r['Сплав']), float(str(r['Толщина материала (мкм)']).replace(',','.'))): r['Ширина межкройного реза (мм)'] for _, r in df_ref.iterrows()}
     
