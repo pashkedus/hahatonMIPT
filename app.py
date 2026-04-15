@@ -1,106 +1,72 @@
 import pandas as pd
 from flask import Flask, render_template, request, jsonify
 import opt
+import traceback
 
 app = Flask(__name__)
 
-def clean_alloy(val):
-    """Приводит сплав к чистому строковому виду (например, '1200')"""
+def clean_val(val):
     if pd.isna(val): return ""
     return str(val).strip().split('.')[0]
 
-def clean_thick(val):
-    """Приводит толщину к числу с плавающей точкой (6,35 -> 6.35)"""
+def clean_float(val):
     if pd.isna(val): return 0.0
-    try:
-        return round(float(str(val).replace(',', '.')), 2)
-    except:
-        return 0.0
+    try: return round(float(str(val).replace(',', '.')), 2)
+    except: return 0.0
 
 @app.route('/')
-def index():
-    return render_template('index.html')
+def index(): return render_template('index.html')
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    print("\n[АЭРОКОНДЕНСАТ] Глубокий анализ данных...")
+    print("\n[АЭРОКОНДЕНСАТ] Старт обработки файла...")
     file = request.files['file']
-    
     try:
-        # 1. Читаем листы
         df_orders = pd.read_excel(file, sheet_name='Заказы')
         df_ref = pd.read_excel(file, sheet_name='Справочник межкроя')
         
-        # 2. Строим справочник с нормализованными ключами
-        # Ключ: ("8011", 6.35)
-        valid_materials = {}
+        valid_ref = {}
         for _, r in df_ref.iterrows():
-            a = clean_alloy(r['Сплав'])
-            t = clean_thick(r['Толщина материала (мкм)'])
-            valid_materials[(a, t)] = float(r['Ширина межкройного реза (мм)'])
-        
-        print(f"[DEBUG] Справочник загружен. Уникальных типов: {len(valid_materials)}")
+            a = clean_val(r['Сплав'])
+            t = clean_float(r['Толщина материала (мкм)'])
+            valid_ref[(a, t)] = float(r['Ширина межкройного реза (мм)'])
 
         engine = opt.NestingEngine()
-        all_bobbins_results = []
-        global_u_area = 0
-        global_w_area = 0
+        all_results = []
+        g_useful, g_waste = 0, 0
 
-        # 3. Обрабатываем заказы
-        # Группируем по исходным колонкам, но внутри будем нормализовать
         groups = df_orders.groupby(['Сплав', 'Толщина материала (мкм)'])
-
-        for (alloy_raw, thick_raw), group_df in groups:
-            a_norm = clean_alloy(alloy_raw)
-            t_norm = clean_thick(thick_raw)
-            
-            # ПРОВЕРКА СОПОСТАВЛЕНИЯ
-            if (a_norm, t_norm) not in valid_materials:
-                print(f"[WARN] Пропуск: {a_norm} / {t_norm}мкм (Нет в справочнике)")
+        for (a_raw, t_raw), g_df in groups:
+            a_n, t_n = clean_val(a_raw), clean_float(t_raw)
+            if (a_n, t_n) not in valid_ref:
+                print(f"[WARN] Пропуск {a_n}/{t_n} - нет в справочнике")
                 continue
             
-            gap = valid_materials[(a_norm, t_norm)]
-            print(f"[LOG] Расчет: {a_norm} | {t_norm}мкм | Рез {gap}мм | Заказов: {len(group_df)}")
+            gap = valid_ref[(a_n, t_n)]
+            print(f"[LOG] Расчет: {a_n} | {t_n}мкм | Рез {gap}мм")
             
-            mat_orders = []
-            for _, r in group_df.iterrows():
-                mat_orders.append({
-                    "id": str(r['Номер заказа']),
-                    "alloy": a_norm,
-                    "thickness": t_norm,
-                    "width": float(r['Ширина листа заказа (мм)']),
-                    "length": float(r['Длина листа заказа (м)']),
-                    "priority": int(r['Очередность заказа'])
-                })
+            mat_orders = [{"id": str(r['Номер заказа']), "alloy": a_n, "thickness": t_n, "width": float(r['Ширина листа заказа (мм)']), "length": float(r['Длина листа заказа (м)']), "priority": int(r['Очередность заказа'])} for _, r in g_df.iterrows()]
             
-            # Запуск оптимизации
             res = engine.pack(mat_orders, gap)
-            
             for b in res['bobbins']:
-                all_bobbins_results.append({
-                    "material": f"Сплав {a_norm} / {t_norm} мкм",
-                    "items": b,
-                    "gap": gap
-                })
+                all_results.append({"material": f"{a_n} / {t_n} мкм", "items": b, "gap": gap})
             
-            global_u_area += res['metrics']['useful_m2']
-            global_w_area += res['metrics']['waste_m2']
+            g_useful += res['metrics']['useful_m2']
+            g_waste += res['metrics']['waste_m2']
 
-        if not all_bobbins_results:
-            return jsonify({"error": "Ни один заказ не совпал со справочником. Проверьте названия сплавов и толщину."}), 400
+        if not all_results:
+            return jsonify({"error": "Данные не совпали со справочником!"}), 400
 
-        print(f"[SUCCESS] Готово. Бобин: {len(all_bobbins_results)}")
-        
+        print(f"[SUCCESS] Готово. Создано бобин: {len(all_results)}")
         return jsonify({
-            "bobbins": all_bobbins_results,
+            "bobbins": all_results,
             "metrics": {
-                "eff": round((global_u_area / (global_u_area + global_w_area) * 100), 2),
-                "waste": round(global_w_area, 2)
+                "eff": round((g_useful / (g_useful + g_waste) * 100), 2),
+                "waste_perc": round((g_waste / (g_useful + g_waste) * 100), 2),
+                "waste_m2": round(g_waste, 2)
             }
         })
-
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
