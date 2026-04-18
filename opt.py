@@ -14,7 +14,6 @@ class NestingEngine:
         min_waste = float('inf')
         thresholds = [x / 100.0 for x in range(60, 100, 1)]
 
-        # Сюда будем собирать данные для Excel
         iteration_logs = []
 
         for th in thresholds:
@@ -25,7 +24,6 @@ class NestingEngine:
             useful_m2 = res['metrics']['useful_m2']
             waste_perc = round((waste_m2 / (useful_m2 + waste_m2) * 100), 2) if (useful_m2 + waste_m2) > 0 else 0
 
-            # Добавляем строку лога для каждой итерации
             iteration_logs.append({
                 "Сплав": alloy,
                 "Толщина": thickness,
@@ -38,21 +36,25 @@ class NestingEngine:
                 min_waste = waste_m2
                 best_res = res
                 best_res['best_threshold_pct'] = int(th * 100)
-                best_res['iteration_logs'] = iteration_logs # Сохраняем логи внутри результата
+                best_res['iteration_logs'] = iteration_logs
 
         return best_res
 
     def _pack_with_threshold(self, orders, gap, threshold, alloy, thickness):
         pool = {p: [o for o in orders if o['priority'] == p] for p in set(o['priority'] for o in orders)}
         priorities = sorted(pool.keys())
-        for o in orders: o['placed'] = False
+        for o in orders:
+            o['placed'] = False
         bobbins, current_map, current_y = [], [], 0
+
         for p in priorities:
-            mains = sorted([o for o in pool[p] if not o['placed']], key=lambda x: (x['length'], x['width']),
-                           reverse=True)
+            mains = sorted([o for o in pool[p] if not o['placed']],
+                           key=lambda x: (x['length'], x['width']), reverse=True)
             while mains:
                 mo = mains[0]
-                if mo['placed']: mains.pop(0); continue
+                if mo['placed']:
+                    mains.pop(0)
+                    continue
                 self._check_rotation(mo)
                 row_items = [mo]
                 mo['placed'] = True
@@ -79,9 +81,9 @@ class NestingEngine:
                     self._fill_residual(current_map, orders, cx, current_y, rem_w, row_h, gap)
                 current_y += row_h
                 mains = [o for o in mains if not o['placed']]
-        if current_map: bobbins.append(current_map)
 
-        # Передаем сплав и толщину для правильного формирования метрик
+        if current_map:
+            bobbins.append(current_map)
         return self._finalize(bobbins, gap, alloy, thickness)
 
     def _fill_residual(self, cmap, all_o, x, y, rw, rh, gap):
@@ -90,8 +92,11 @@ class NestingEngine:
             col_w, stack_y, found_col = 0, 0, False
             while stack_y < rh:
                 rem_h = rh - stack_y
-                candidates = [s for s in all_o if not s['placed'] and s['width'] <= (rw - gap) and s['length'] <= rem_h]
-                if not candidates: break
+                candidates = [s for s in all_o if not s['placed']
+                              and s['width'] <= (rw - gap)
+                              and s['length'] <= rem_h]
+                if not candidates:
+                    break
                 candidates.sort(key=lambda x: x['length'], reverse=True)
                 best_s = candidates[0]
                 cmap.append(self._create_item(best_s, curr_x, y + stack_y))
@@ -114,9 +119,14 @@ class NestingEngine:
 
     def _create_item(self, o, x, y):
         return {
-            "id": o['id'], "p": o['priority'], "rotated": o.get('rotated', False),
-            "w_mm": round(o['width'], 1), "h_mm": round(o['length'] * 1000, 1),
-            "y": round(y, 3), "x": round(x, 1), "h_m": round(o['length'], 3)
+            "id": o['id'],
+            "p": o['priority'],
+            "rotated": o.get('rotated', False),
+            "w_mm": round(o['width'], 1),
+            "h_mm": round(o['length'] * 1000, 1),
+            "y": round(y, 3),
+            "x": round(x, 1),
+            "h_m": round(o['length'], 3)
         }
 
     def _finalize(self, bobbins, gap, alloy, thickness):
@@ -129,11 +139,8 @@ class NestingEngine:
 
         for idx, cmap in enumerate(bobbins):
             useful_area = sum(item['w_mm'] * item['h_m'] for item in cmap) / 1000.0
-
-            # Высчитываем реально использованную длину на бобине для метрик отходов
             used_len = max([item['y'] + item['h_m'] for item in cmap]) if cmap else 0
             used_area = (used_len * self.total_width) / 1000.0
-
             waste_area = used_area - useful_area
             waste_perc = (waste_area / used_area * 100) if used_area > 0 else 0
 
@@ -152,12 +159,12 @@ class NestingEngine:
                         "width_mm": round(item['w_mm'], 2),
                         "length_m": round(item['h_m'], 4)
                     }
-                    # Дублирующие поля 'h' и 'w' удалены, как просил куратор
                 })
 
             batch_id = f"RUN-{date_str}-{idx + 1:03d}"
+            formatted_alloy = f"AA{alloy}"
 
-            formatted_bobbins.append({
+            bobbin_dict = {
                 "instruction_metadata": {
                     "batch_id": batch_id,
                     "timestamp": now_str,
@@ -165,7 +172,7 @@ class NestingEngine:
                     "machine_id": "MILL-05"
                 },
                 "source_material": {
-                    "alloy": alloy,
+                    "alloy": formatted_alloy,
                     "thickness_um": thickness,
                     "bobbin_width_mm": self.total_width,
                     "bobbin_length_m": self.max_length
@@ -180,7 +187,8 @@ class NestingEngine:
                     "waste_area_m2": round(waste_area, 2),
                     "waste_percentage": round(waste_perc, 2)
                 }
-            })
+            }
+            formatted_bobbins.append(bobbin_dict)
 
         return {
             "bobbins": formatted_bobbins,

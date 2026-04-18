@@ -1,5 +1,5 @@
 import pandas as pd
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
 import opt
 import traceback
 import json
@@ -42,8 +42,8 @@ def upload():
         all_results = []
         g_useful, g_waste = 0, 0
 
-        full_optimization_log = []  # Для всех итераций
-        group_summary = []  # Для итогов по группам
+        full_optimization_log = []
+        group_summary = []
 
         groups = df_orders.groupby(['Сплав', 'Толщина материала (мкм)'])
 
@@ -56,14 +56,10 @@ def upload():
                            "length": float(r['Длина листа заказа (м)']), "priority": int(r['Очередность заказа'])} for
                           _, r in g_df.iterrows()]
 
-            # Получаем результат с логами итераций
             res = engine.pack(mat_orders, gap, a_n, t_n)
             all_results.extend(res['bobbins'])
 
-            # 1. Собираем подробный лог перебора (то, что было в TXT)
             full_optimization_log.extend(res['iteration_logs'])
-
-            # 2. Собираем итог по группе
             g_useful += res['metrics']['useful_m2']
             g_waste += res['metrics']['waste_m2']
             group_summary.append({
@@ -72,22 +68,15 @@ def upload():
                 "Мин. отход (м2)": round(res['metrics']['waste_m2'], 2)
             })
 
-        # --- ЗАПИСЬ В EXCEL ---
         with pd.ExcelWriter('AeroRusal_Detailed_Report.xlsx') as writer:
-            # Лист 1: Общий итог
             waste_total_perc = round((g_waste / (g_useful + g_waste) * 100), 2) if (g_useful + g_waste) > 0 else 0
             pd.DataFrame([
                 {"Показатель": "Глобальная доля обрезков", "Значение": f"{waste_total_perc}%"},
                 {"Показатель": "Глобальная площадь обрезков", "Значение": f"{round(g_waste, 2)} м2"}
             ]).to_excel(writer, sheet_name='Глобальный итог', index=False)
-
-            # Лист 2: Итоги по группам (Сплав/Толщина)
             pd.DataFrame(group_summary).to_excel(writer, sheet_name='Итоги по группам', index=False)
-
-            # Лист 3: Полный лог (Тот самый TXT формат в виде таблицы)
             pd.DataFrame(full_optimization_log).to_excel(writer, sheet_name='Лог оптимизации (итерации)', index=False)
 
-        # Сохраняем JSON
         with open('AeroRusal_Plan.json', 'w', encoding='utf-8') as f:
             json.dump(all_results, f, ensure_ascii=False, indent=2)
 
@@ -104,6 +93,11 @@ def upload():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/download')
+def download_file():
+    return send_file('AeroRusal_Plan.json', as_attachment=True)
 
 
 if __name__ == '__main__':

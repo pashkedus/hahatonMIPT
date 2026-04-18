@@ -34,14 +34,13 @@
                 <div class="stat-val"><span id="vP">0</span>%</div>
                 <div id="vStatus" style="font-size:10px; margin-top:5px; font-weight: bold;"></div>
             </div>
-            <div class="stat-card" style="border-left-color: #555;"><small>ПЛОЩАДЬ ОТХОДОВ</small><div class="stat-val" style="color:#eee; font-size:18px;"><span id="vM">0</span> м²</div></div>
+            <div class="stat-card" style="border-left-color: #555;">
+                <small>ПЛОЩАДЬ ОТХОДОВ</small>
+                <div class="stat-val" style="color:#eee; font-size:18px;"><span id="vM">0</span> м²</div>
+            </div>
             <label style="font-size:12px">Партия материала:</label>
             <select id="bSel" onchange="draw()"></select>
             <button style="background:#444" onclick="download()">ЭКСПОРТ JSON</button>
-			<div class="stat-card" style="border-left-color: #007bff;">
-				<small>ОПТИМАЛЬНЫЙ ДОПУСК</small>
-				<div class="stat-val" style="color:#007bff; font-size:18px;"><span id="vT">0</span>%</div>
-</div>
         </div>
     </div>
     <div style="display:flex; flex-direction:column; overflow:hidden;">
@@ -69,12 +68,10 @@
         document.getElementById('res').style.display = 'flex';
         document.getElementById('vP').innerText = raw.metrics.waste_perc;
         document.getElementById('vM').innerText = raw.metrics.waste_m2;
-        document.getElementById('vT').innerText = raw.metrics.best_threshold_pct;
         const st = document.getElementById('vStatus');
         if(raw.metrics.waste_perc <= 15) { st.innerText = "✓ В НОРМЕ (<15%)"; st.style.color="#28a745"; }
         else { st.innerText = "ПРЕВЫШЕНИЕ (>15%)"; st.style.color="#ffc107"; }
         
-        // Берем сплав и толщину из нового блока source_material
         document.getElementById('bSel').innerHTML = raw.bobbins.map((b,i)=>`<option value="${i}">№${i+1} [${b.source_material.alloy} / ${b.source_material.thickness_um} мкм]</option>`).join('');
         draw();
     }
@@ -123,10 +120,11 @@
     }
     
     function download() {
-        // Мы скачиваем только массив бобин, чтобы он соответствовал JSON структуре куратора
-        const blob = new Blob([JSON.stringify(raw.bobbins, null, 2)], {type: "application/json"});
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-        a.download = "AeroRusal_Plan.json"; a.click();
+        // Скачиваем готовый JSON, сгенерированный сервером (лежит в папке)
+        const a = document.createElement('a');
+        a.href = '/download';
+        a.download = 'AeroRusal_Plan.json';
+        a.click();
     }
 </script>
 </body>
