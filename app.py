@@ -1,6 +1,6 @@
 import pandas as pd
 from flask import Flask, render_template, request, jsonify
-import opt  # Файл input_file_5.py должен быть переименован в opt.py
+import opt
 import traceback
 import json
 import os
