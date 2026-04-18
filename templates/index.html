@@ -38,6 +38,10 @@
             <label style="font-size:12px">Партия материала:</label>
             <select id="bSel" onchange="draw()"></select>
             <button style="background:#444" onclick="download()">ЭКСПОРТ JSON</button>
+			<div class="stat-card" style="border-left-color: #007bff;">
+				<small>ОПТИМАЛЬНЫЙ ДОПУСК</small>
+				<div class="stat-val" style="color:#007bff; font-size:18px;"><span id="vT">0</span>%</div>
+</div>
         </div>
     </div>
     <div style="display:flex; flex-direction:column; overflow:hidden;">
@@ -65,37 +69,62 @@
         document.getElementById('res').style.display = 'flex';
         document.getElementById('vP').innerText = raw.metrics.waste_perc;
         document.getElementById('vM').innerText = raw.metrics.waste_m2;
+        document.getElementById('vT').innerText = raw.metrics.best_threshold_pct;
         const st = document.getElementById('vStatus');
         if(raw.metrics.waste_perc <= 15) { st.innerText = "✓ В НОРМЕ (<15%)"; st.style.color="#28a745"; }
-        else { st.innerText = "⚠ ПРЕВЫШЕНИЕ (>15%)"; st.style.color="#ffc107"; }
-        document.getElementById('bSel').innerHTML = raw.bobbins.map((b,i)=>`<option value="${i}">№${i+1} [${b.material}]</option>`).join('');
+        else { st.innerText = "ПРЕВЫШЕНИЕ (>15%)"; st.style.color="#ffc107"; }
+        
+        // Берем сплав и толщину из нового блока source_material
+        document.getElementById('bSel').innerHTML = raw.bobbins.map((b,i)=>`<option value="${i}">№${i+1} [${b.source_material.alloy} / ${b.source_material.thickness_um} мкм]</option>`).join('');
         draw();
     }
+    
     function draw() {
         const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
         const b = raw.bobbins[document.getElementById('bSel').value];
         const zoom = 0.5, scaleY = 1.0; 
-        const maxH = Math.max(...b.items.map(i=>i.y + i.h_m));
-        cv.width = 1500 * zoom; cv.height = maxH * scaleY + 100;
+        
+        const items = b.cutting_map;
+        const gap = b.layout_configuration.inter_cut_mm;
+        const edge = b.layout_configuration.edge_trim_mm;
+        const w_total = b.source_material.bobbin_width_mm;
+        
+        const maxH = items.length > 0 ? Math.max(...items.map(i => i.coordinates.y_start_m + i.coordinates.length_m)) : 0;
+        
+        cv.width = w_total * zoom; 
+        cv.height = maxH * scaleY + 100;
+        
         ctx.fillStyle = "#111"; ctx.fillRect(0,0,cv.width,cv.height);
-        ctx.fillStyle = "rgba(255,50,50,0.2)"; ctx.fillRect(0,0,15*zoom,cv.height);
-        ctx.fillRect(cv.width-(15*zoom),0,15*zoom,cv.height);
-        b.items.forEach(it => {
-            const x = it.x*zoom, y = it.y*scaleY, w = it.w_mm*zoom, h = it.h_m*scaleY;
-            ctx.fillStyle = colors[(it.p-1)%5]; ctx.fillRect(x,y,w,h);
+        ctx.fillStyle = "rgba(255,50,50,0.2)"; 
+        ctx.fillRect(0, 0, edge * zoom, cv.height);
+        ctx.fillRect(cv.width - (edge * zoom), 0, edge * zoom, cv.height);
+        
+        items.forEach(it => {
+            const coord = it.coordinates;
+            const x = coord.x_start_mm * zoom;
+            const y = coord.y_start_m * scaleY;
+            const w = coord.width_mm * zoom;
+            const h = coord.length_m * scaleY;
+            const p = it.priority;
+            
+            ctx.fillStyle = colors[(p-1)%5]; ctx.fillRect(x,y,w,h);
             ctx.strokeStyle = "#000"; ctx.strokeRect(x,y,w,h);
+            
             ctx.setLineDash([2,2]); ctx.strokeStyle = "#FFD700";
-            ctx.strokeRect(x-(b.gap/2*zoom), y, w+(b.gap*zoom), h);
+            ctx.strokeRect(x-(gap/2*zoom), y, w+(gap*zoom), h);
             ctx.setLineDash([]);
+            
             if(h > 12) {
                 ctx.fillStyle = "#000"; ctx.font = "bold 13px sans-serif";
-                ctx.fillText((it.rotated?"↻ ":"")+it.id, x+4, y+14);
-                if(h > 25) { ctx.font = "10px sans-serif"; ctx.fillText(`${Math.round(it.w_mm)}x${Math.round(it.h_mm)} mm`, x+4, y+26); }
+                ctx.fillText(it.order_id, x+4, y+14);
+                if(h > 25) { ctx.font = "10px sans-serif"; ctx.fillText(`${Math.round(coord.width_mm)}x${Math.round(coord.length_m*1000)} mm`, x+4, y+26); }
             }
         });
     }
+    
     function download() {
-        const blob = new Blob([JSON.stringify(raw, null, 2)], {type: "application/json"});
+        // Мы скачиваем только массив бобин, чтобы он соответствовал JSON структуре куратора
+        const blob = new Blob([JSON.stringify(raw.bobbins, null, 2)], {type: "application/json"});
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
         a.download = "AeroRusal_Plan.json"; a.click();
     }
