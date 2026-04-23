@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Аэроконденсат × Русал | Контроль Обрезков</title>
+    <style>
+        :root { --bg: #0b0d0f; --panel: #14171c; --accent: #007bff; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 15px; height: 100vh; overflow: hidden; box-sizing: border-box; }
+        .layout { display: grid; grid-template-columns: 320px 1fr; gap: 15px; height: calc(100vh - 30px); }
+        .sidebar { background: var(--panel); padding: 20px; border-radius: 10px; border: 1px solid #2a2e37; display: flex; flex-direction: column; gap: 12px; }
+        .brand h2 { margin: 0; font-size: 19px; color: var(--accent); letter-spacing: 1px; text-transform: uppercase; }
+        .stat-card { background: #1c2028; padding: 12px; border-radius: 6px; border-left: 4px solid #dc3545; }
+        .stat-val { font-size: 26px; font-weight: bold; color: #dc3545; }
+        .viewer { background: var(--panel); border-radius: 10px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #2a2e37; }
+        .canvas-container { flex: 1; overflow-y: auto; background: #000; position: relative; scrollbar-width: thin; }
+        canvas { display: block; margin: 0 auto; background: #fff; }
+        .legend { background: #0b0d0f; padding: 8px; display: flex; gap: 15px; justify-content: center; font-size: 11px; }
+        .leg-item { display: flex; align-items: center; gap: 5px; }
+        .leg-item i { width: 10px; height: 10px; border-radius: 2px; }
+        button { padding: 12px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; background: var(--accent); color: #fff; }
+        select, input { padding: 8px; background: #0b0d0f; color: #fff; border: 1px solid #333; border-radius: 6px; width: 100%; }
+    </style>
+</head>
+<body>
+<div class="layout">
+    <div class="sidebar">
+        <div class="brand"><h2>Аэроконденсат <span style="color:#fff">×</span> Русал</h2></div>
+        <div style="font-size: 11px; color: #888;">Листы в Excel: "Заказы" и "Справочник межкроя".</div>
+        <input type="file" id="f">
+        <button onclick="calc()">РАССЧИТАТЬ ПЛАН</button>
+        <div id="res" style="display:none; flex-direction: column; gap: 10px;">
+            <div class="stat-card">
+                <small>ДОЛЯ ОБРЕЗКОВ</small>
+                <div class="stat-val"><span id="vP">0</span>%</div>
+                <div id="vStatus" style="font-size:10px; margin-top:5px; font-weight: bold;"></div>
+            </div>
+            <div class="stat-card" style="border-left-color: #555;">
+                <small>ПЛОЩАДЬ ОТХОДОВ</small>
+                <div class="stat-val" style="color:#eee; font-size:18px;"><span id="vM">0</span> м²</div>
+            </div>
+            <label style="font-size:12px">Партия материала:</label>
+            <select id="bSel" onchange="draw()"></select>
+            <button style="background:#444" onclick="download()">ЭКСПОРТ JSON</button>
+        </div>
+    </div>
+    <div style="display:flex; flex-direction:column; overflow:hidden;">
+        <div class="canvas-container"><canvas id="cv"></canvas></div>
+        <div class="legend">
+            <div class="leg-item"><i style="background:#007bff"></i> Оч. 1</div>
+            <div class="leg-item"><i style="background:#28a745"></i> Оч. 2</div>
+            <div class="leg-item"><i style="background:#ffc107"></i> Оч. 3</div>
+            <div class="leg-item"><i style="border: 1px dashed #FFD700;"></i> Рез</div>
+            <div class="leg-item"><i style="background:rgba(255, 50, 50, 0.4); border:1px solid red;"></i> Кромка (15мм)</div>
+            <div class="leg-item"><span>↻</span> Вращение</div>
+        </div>
+    </div>
+</div>
+<script>
+    let raw = null;
+    const colors = ["#007bff", "#28a745", "#ffc107", "#e83e8c", "#6f42c1"];
+    async function calc() {
+        const file = document.getElementById('f').files[0];
+        if(!file) return alert("Файл!");
+        const fd = new FormData(); fd.append('file', file);
+        const r = await fetch('/upload', { method: 'POST', body: fd });
+        raw = await r.json();
+        if(raw.error) return alert(raw.error);
+        document.getElementById('res').style.display = 'flex';
+        document.getElementById('vP').innerText = raw.metrics.waste_perc;
+        document.getElementById('vM').innerText = raw.metrics.waste_m2;
+        const st = document.getElementById('vStatus');
+        if(raw.metrics.waste_perc <= 15) { st.innerText = "✓ В НОРМЕ (<15%)"; st.style.color="#28a745"; }
+        else { st.innerText = "ПРЕВЫШЕНИЕ (>15%)"; st.style.color="#ffc107"; }
+        
+        document.getElementById('bSel').innerHTML = raw.bobbins.map((b,i)=>`<option value="${i}">№${i+1} [${b.source_material.alloy} / ${b.source_material.thickness_um} мкм]</option>`).join('');
+        draw();
+    }
+    
+    function draw() {
+        const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
+        const b = raw.bobbins[document.getElementById('bSel').value];
+        const zoom = 0.5, scaleY = 1.0; 
+        
+        const items = b.cutting_map;
+        const gap = b.layout_configuration.inter_cut_mm;
+        const edge = b.layout_configuration.edge_trim_mm;
+        const w_total = b.source_material.bobbin_width_mm;
+        
+        const maxH = items.length > 0 ? Math.max(...items.map(i => i.coordinates.y_start_m + i.coordinates.length_m)) : 0;
+        
+        const labelWidth = 80; // отступ справа под метки высот
+        cv.width = w_total * zoom + labelWidth; 
+        cv.height = maxH * scaleY + 100;
+        
+        // Фон всего холста (включая пространство для подписей)
+        ctx.fillStyle = "#111"; ctx.fillRect(0, 0, cv.width, cv.height);
+        // Бобина рисуется в области x от 0 до w_total*zoom
+        ctx.fillStyle = "rgba(255,50,50,0.2)"; 
+        ctx.fillRect(0, 0, edge * zoom, cv.height);
+        ctx.fillRect(w_total * zoom - edge * zoom, 0, edge * zoom, cv.height);
+        
+        // Линии высот с метками справа
+        ctx.save();
+        ctx.strokeStyle = "#555";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.fillStyle = "#aaa";
+        ctx.font = "11px sans-serif";
+        const step = 500; // метров
+        for (let y = step; y < maxH; y += step) {
+            const yPx = y * scaleY;
+            // Линия через всю ширину холста
+            ctx.beginPath();
+            ctx.moveTo(0, yPx);
+            ctx.lineTo(cv.width, yPx);
+            ctx.stroke();
+            // Метка справа, в свободной колонке
+            const text = y + " м";
+            const textWidth = ctx.measureText(text).width;
+            const xText = w_total * zoom + (labelWidth - textWidth) / 2; // центрируем в колонке
+            ctx.fillText(text, xText, yPx - 3);
+        }
+        ctx.restore();
+        
+        // Заказы
+        items.forEach(it => {
+            const coord = it.coordinates;
+            const x = coord.x_start_mm * zoom;
+            const y = coord.y_start_m * scaleY;
+            const w = coord.width_mm * zoom;
+            const h = coord.length_m * scaleY;
+            const p = it.priority;
+            
+            ctx.fillStyle = colors[(p-1)%5]; ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = "#000"; ctx.strokeRect(x, y, w, h);
+            
+            ctx.setLineDash([2,2]); ctx.strokeStyle = "#FFD700";
+            ctx.strokeRect(x - (gap/2*zoom), y, w + (gap*zoom), h);
+            ctx.setLineDash([]);
+            
+            if (h > 12) {
+                ctx.fillStyle = "#000"; ctx.font = "bold 13px sans-serif";
+                ctx.fillText(it.order_id, x + 4, y + 14);
+                if (h > 25) {
+                    ctx.font = "10px sans-serif";
+                    ctx.fillText(`${Math.round(coord.width_mm)}x${Math.round(coord.length_m*1000)} mm`, x + 4, y + 26);
+                }
+            }
+        });
+    }
+    
+    function download() {
+        const a = document.createElement('a');
+        a.href = '/download';
+        a.download = 'AeroRusal_Plan.json';
+        a.click();
+    }
+</script>
+</body>
+</html>
